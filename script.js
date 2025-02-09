@@ -1,205 +1,211 @@
-"use strict";
 
-let W, H, ctx, ropes,stat,turn;
-
-let mouse, touch;
-let move = false;
-
-const u = {
-    drawC(x, y, r, c) {
-        ctx.beginPath();
-        ctx.fillStyle = c;
-        ctx.arc(x, y, r, 0, 2*Math.PI);
-        ctx.fill();
-        ctx.closePath();
+var settings = {
+    particles: {
+        length: 500, // Number of particles
+        duration: 2, // Particle duration in seconds
+        velocity: 100, // Particle velocity in pixels per second
+        effect: -0.75, // Particle effect (0 = no effect, -1 = reverse, 1 = normal)
+        size: 30, // Particle size in pixels
     },
-    
-    drawL(x0,y0,x, y, r, c) {
-        ctx.beginPath();
-        ctx.moveTo(x0,y0);
-        ctx.lineWidth = r;
-        ctx.strokeStyle = c;
-        ctx.lineTo(x,y);
+};
+
+(function(){var b=0;var c=["ms","moz","webkit","o"];for(var a=0;a<c.length&&!window.requestAnimationFrame;++a){window.requestAnimationFrame=window[c[a]+"RequestAnimationFrame"];window.cancelAnimationFrame=window[c[a]+"CancelAnimationFrame"]||window[c[a]+"CancelRequestAnimationFrame"]}if(!window.requestAnimationFrame){window.requestAnimationFrame=function(h,e){var d=new Date().getTime();var f=Math.max(0,16-(d-b));var g=window.setTimeout(function(){h(d+f)},f);b=d+f;return g}}if(!window.cancelAnimationFrame){window.cancelAnimationFrame=function(d){clearTimeout(d)}}}()); // Polyfill for requestAnimationFrame
+
+var Point = (function() { // Point class
+    function Point(x, y) { // Constructor
+        this.x = (typeof x !== 'undefined') ? x : 0;
+        this.y = (typeof y !== 'undefined') ? y : 0;
+    }   
+    Point.prototype.clone = function() { // Clone point
+        return new Point(this.x, this.y);
+    };
+    Point.prototype.length = function(length) { // Get or set length
+        if (typeof length == 'undefined')
+        return Math.sqrt(this.x * this.x + this.y * this.y);
+        this.normalize();
+        this.x *= length;
+        this.y *= length;
+        return this;
+    };
+    Point.prototype.normalize = function() { // Normalize point
+        var length = this.length();
+        this.x /= length;
+        this.y /= length;
+        return this;
+    };
+
+    return Point;
+})();
+
+var Particle = (function() { // Particle class
+    function Particle() {
+        this.position = new Point();
+        this.velocity = new Point();
+        this.acceleration = new Point();
+        this.age = 0;
+    }
+    Particle.prototype.initialize = function(x, y, dx, dy) { // Initialize particle
+        this.position.x = x;
+        this.position.y = y;
+        this.velocity.x = dx;
+        this.velocity.y = dy;
+        this.acceleration.x = dx * settings.particles.effect;
+        this.acceleration.y = dy * settings.particles.effect;
+        this.age = 0;
+    };
+    Particle.prototype.update = function(deltaTime) { // Update particle
+        this.position.x += this.velocity.x * deltaTime;
+        this.position.y += this.velocity.y * deltaTime;
+        this.velocity.x += this.acceleration.x * deltaTime;
+        this.velocity.y += this.acceleration.y * deltaTime;
+        this.age += deltaTime;
+    };
+    Particle.prototype.draw = function(context, image) { // Draw particle
+        function ease(t) { // Ease function
+        return (--t) * t * t + 1;
+        }
+        var size = image.width * ease(this.age / settings.particles.duration);
+        context.globalAlpha = 1 - this.age / settings.particles.duration;
+        context.drawImage(image, this.position.x - size / 2, this.position.y - size / 2, size, size);
+    };
+
+    return Particle;
+})();
+
+var ParticlePool = (function() { // Particle pool class
+    var particles, firstActive = 0, firstFree = 0, duration = settings.particles.duration;
+
+    function ParticlePool(length) { // Constructor
+        particles = new Array(length);
+        for (var i = 0; i < particles.length; i++)
+        particles[i] = new Particle();
+    }
+    ParticlePool.prototype.add = function(x, y, dx, dy) { // Add particle
+        particles[firstFree].initialize(x, y, dx, dy);
+        firstFree++;
+
+        if (firstFree == particles.length) { // Reset pool
+            firstFree = 0;
+        }
+        if (firstActive == firstFree) { // Reset pool
+            firstActive++;
+        }
+        if (firstActive == particles.length) { // Reset pool
+            firstActive = 0;
+        }
+    };
+    ParticlePool.prototype.update = function(deltaTime) { // Update particles
+        var i;
         
-        ctx.stroke();
-        ctx.closePath();
-    },
-    
-    pick(max=1, min=0){
-        return Math.random() * (max - min) + min;
-    },
-    
-    ipick(max=1, min=0){
-        return Math.round(Math.random() * (max - min) + min);
-    },
-    writeT(text,x,y){
-        ctx.beginPath();
-// The size is set with the font
-        ctx.font = '25px serif';
-// align position
-        ctx.fillStyle = "yellow";
-        ctx.textAlign = "center"; 
-        ctx.textBaseline = "middle"; 
-// draw text
-        ctx.fillText(text,x,y);
-        ctx.fill();
-        ctx.closePath();}
-};
-
-class Rope{
-    constructor(x,y,r,c,z){
-        this.ref = {x:x, y:y};
-        this.si=Math.min(0.05*this.ref.x,0.05*(W-this.ref.x),0.05*this.ref.y,0.05*(H-this.ref.y));
-        this.d ={x:1, y:-1.3};
-        this.z =z;
-        this.r =r;
-        this.c =c;
-        this.ar =0;
-        this.f=1;
-        this.n=[];
-        this.n.push(new Node(this.ref.x, this.ref.y,this.r,this.c));
-        this.createCords();
-    }
-    createCords(){
-    let a, b;
-        for(let i=0;i<20;i++){
-            a=this.n[0].x+5*(i+1);
-            b=this.n[0].y+5*(i+1);
-            let color=this.c;
-            this.n.push(new Node(a,b,u.pick(),color));}
-    }
-// Controls movement
-    update(idx) {
-        for(let j=0;j<this.n.length;j++){
-// parametric equations driven by increment in angle this.z for node 0
-        if(!j){
-        if(mouse.x&&(idx!=turn))continue;
-        this.z+=0.01;
-        let tx=Math.sin(this.z);
-        this.n[j].x = mouse.x || this.ref.x+ (this.si*(16*tx*tx*tx));
-        tx=this.z;
-        this.n[j].y = mouse.y || this.ref.y-(this.si*(13*Math.cos(tx)-5*Math.cos(2*tx)- 2*Math.cos(3*tx) - Math.cos(4*tx)));
-// reset position with touch
-            if(mouse.x){this.ref.x=mouse.x;
-                if(mouse.y)this.ref.y=mouse.y;
-                this.ar=0; //not calculating
-                this.z%=6.3132;
-                turn++;
-                turn%=(ropes.length);
-                mouse.x=null;
-                mouse.y=null;
-                this.si=Math.min(0.05*this.ref.x,0.05*(W-this.ref.x),0.05*this.ref.y,0.05*(H-this.ref.y));
-                ctx.fillStyle = "rgba(24,0,151,0.95)";
-                ctx.fillRect(0, 0, W, H);}
+        if (firstActive < firstFree) { // Update particles
+            for (i = firstActive; i < firstFree; i++) { // Update particles
+                particles[i].update(deltaTime);
+            }
         }
-        else{
-        this.n[j].x +=  (this.n[j-1].x-this.n[j].x) /(j+1) ;
-        this.n[j].y +=  (this.n[j-1].y-this.n[j].y) /(j+1) ;
+        if (firstFree < firstActive) { // Update particles
+            for (i = firstActive; i < particles.length; i++) { // Update particles
+                particles[i].update(deltaTime);
+            }
+            for (i = 0; i < firstFree; i++) { // Update particles
+                particles[i].update(deltaTime);
+            }
         }
-    this.n[j].draw();
-    }
-    }
-}
-
-class Node{
-    constructor(x,y,r,c){
-        this.x = x;
-        this.y = y;
-        this.r = r;
-        this.c = c;
-    }
-    draw() {
-        u.drawC(this.x, this.y, this.r, this.c);
-    }
-    check(ref,d,si,f){
-        //return(this.x>ref.x+(2*si)-1 || this.x<ref.x-(2*si)+1);
-        return(this.x>ref.x+(2*si) || this.x<ref.x-(2*si));
-    }
-}
-
-const eventsListener = () => {
-    mouse = {
-        x: null,
-        y: null
+        while (particles[firstActive].age >= duration && firstActive != firstFree) { // Remove old particles
+            firstActive++;
+            if (firstActive == particles.length) { // Reset pool
+                firstActive = 0;
+            }
+        }
     };
-     touch = {
-        x: null,
-        y: null
+    ParticlePool.prototype.draw = function(context, image) { // Draw particles
+        if (firstActive < firstFree) { // Draw particles
+            for (i = firstActive; i < firstFree; i++) { // Draw particles
+                particles[i].draw(context, image);
+            }
+        }
+        if (firstFree < firstActive) { // Draw particles
+            for (i = firstActive; i < particles.length; i++) { // Draw particles
+                particles[i].draw(context, image);
+            }
+            for (i = 0; i < firstFree; i++) { // Draw particles
+                particles[i].draw(context, image);
+            }
+        }
     };
 
-    window.addEventListener("mousemove", function(event){
-        if(move){
-            mouse.x = event.clientX;
-            mouse.y = event.clientY;
+    return ParticlePool;
+})();
+
+(function(canvas) { // Main function
+    var context = canvas.getContext('2d'), particles = new ParticlePool(settings.particles.length), particleRate = settings.particles.length / settings.particles.duration, time;
+
+    function pointOnHeart(t) { // Get point on heart
+        return new Point(
+            160 * Math.pow(Math.sin(t), 3),
+            130 * Math.cos(t) - 50 * Math.cos(2 * t) - 20 * Math.cos(3 * t) - 10 * Math.cos(4 * t) + 25
+        );
+    }
+
+    var image = (function() { // Create particle image
+        var canvas  = document.createElement('canvas'), context = canvas.getContext('2d');
+        canvas.width  = settings.particles.size;
+        canvas.height = settings.particles.size;
+
+        function to(t) { // Convert t to radians 
+            var point = pointOnHeart(t);
+            point.x = settings.particles.size / 2 + point.x * settings.particles.size / 350;
+            point.y = settings.particles.size / 2 - point.y * settings.particles.size / 350;
+        
+            return point;
         }
-        else{
-            mouse.x = null;
-            mouse.y = null;
+
+        context.beginPath();
+        var t = -Math.PI;
+        var point = to(t);
+        context.moveTo(point.x, point.y);
+
+        while (t < Math.PI) { // Draw heart
+            t += 0.01;
+            point = to(t);
+            context.lineTo(point.x, point.y);
         }
-    });
-    window.addEventListener("mousedown", function(event){
-        move=true;
-        mouse.x = event.clientX;
-        mouse.y = event.clientY;
-    });
-    window.addEventListener("mouseup", function(event){
-        move=false;
-    });
-    window.addEventListener("touchstart", function(event){
-        let touch = event.changedTouches[0];
-        let touchX = parseInt(touch.clientX);
-        let touchY = parseInt(touch.clientY);
-        mouse.x = touchX-cvs.offsetLeft;
-        mouse.y = touchY-cvs.offsetTop;
-        move=true;
-    });
+
+        context.closePath();
+        context.fillStyle = '#ea80b0';
+        context.fill();
+        var image = new Image();
+        image.src = canvas.toDataURL();
+
+        return image;
+    })();
+
+    function render() { // Render function
+        requestAnimationFrame(render);
+        var newTime = new Date().getTime() / 1000, deltaTime = newTime - (time || newTime);
+        time = newTime;
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        var amount = particleRate * deltaTime;
+
+        for (var i = 0; i < amount; i++) { // Add particles
+            var pos = pointOnHeart(Math.PI - 2 * Math.PI * Math.random());
+            var dir = pos.clone().length(settings.particles.velocity);
+            particles.add(canvas.width / 2 + pos.x, canvas.height / 2 - pos.y, dir.x, -dir.y);
+        }
+        
+        particles.update(deltaTime);
+        particles.draw(context, image);
+    }
+
+    function onResize() { // Resize function
+        canvas.width  = canvas.clientWidth;
+        canvas.height = canvas.clientHeight;
+    }
+
+    window.onresize = onResize;
     
-    window.addEventListener("touchmove", function(event){
-        //event.preventDefault();
-        if(move){
-            let touch = event.changedTouches[0];
-            let touchX = parseInt(touch.clientX);
-            let touchY = parseInt(touch.clientY);
-            event.preventDefault();
-            mouse.x = touchX-cvs.offsetLeft;
-            mouse.y = touchY-cvs.offsetTop;
-        }
-    },{passive:false}); //*** thanks to SR
-    
-    window.addEventListener("touchend", function(event){
-        mouse.x = null;
-        mouse.y = null;
-        move=false;
-    });
-};
-
-const animate = () => {
-    ctx.fillStyle = "rgba(24,0,151,0.015)";
-    ctx.fillRect(0, 0, W, H);
-    //ropes.forEach((x) => {x.update()});
-    ropes.forEach((x, idx) => {x.update(idx)});
-    if(stat){
-    u.writeT("x=16*sin**3(t); y=13*cos(t)-",0.5*W,0.85*H);
-u.writeT("5*cos(2t)- 2*cos(3t) - cos(4t)",0.5*W,0.9*H);
-    u.writeT("proves that love is irrational",0.5*W,0.95*H);}
-    requestAnimationFrame(animate);
-};
-
-const init = () => {
-    ctx = document.querySelector("#cvs").getContext("2d");
-    W = ctx.canvas.width = innerWidth;
-    H = ctx.canvas.height = innerHeight;
-    turn=0;
-    stat=(window.confirm("Want to know the formula?"));
-    ropes=[];
-    ropes.push(new Rope(W*0.5, H*0.25,1,"hotpink",0.2));
-    //ropes.push(new Rope(W*0.25, H*0.25,5,"cyan"));
-    ropes.push(new Rope(W*0.5, H*0.25,2,"cyan",3.341));
-    //window.alert("Credit to Lolo for event handlers: touch or strife");
-    ctx.fillStyle = "rgba(24,0,151,0.99)";
-    ctx.fillRect(0, 0, W, H);
-    eventsListener();
-    requestAnimationFrame(animate);
-};
-
-onload = init;
+    setTimeout(function() { // Start
+        onResize();
+        render();
+    }, 10);
+})
+(document.getElementById('pinkboard')); // Get canvas element
